@@ -1,0 +1,32 @@
+{
+  "actorSpecification": 1,
+  "name": "website-tech-stack-scanner",
+  "title": "Website Tech Stack Scanner",
+  "version": "1.0.0",
+  "description": "Smart multi-tier technology detection for websites. Efficiently identifies frameworks, CMS, WAFs, APIs, and more using HTTP analysis, static HTML parsing, API probing, and browser rendering fallback.",
+  "dockerfile": "./Dockerfile",
+  "input": "./INPUT.json",
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "views": {
+        "overview": {
+          "title": "Overview",
+          "transformation": {
+            "fields": [
+              "url",
+              "status",
+              "technologies",
+              "waf",
+              "detectionMethod"
+            ]
+          },
+          "display": {
+            "component": "table",
+            "properties": {}
+          }
+        }
+      }
+    }
+  }
+}

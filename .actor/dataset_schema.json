@@ -1,0 +1,168 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "url": {
+      "type": "string",
+      "title": "Website URL",
+      "description": "The analyzed website URL"
+    },
+    "status": {
+      "type": "string",
+      "title": "Analysis Status",
+      "description": "Analysis status (success/failed/partial)"
+    },
+    "technologies": {
+      "type": "object",
+      "title": "Detected Technologies",
+      "description": "Categorized technology stack"
+    },
+    "waf": {
+      "type": "object",
+      "title": "Web Application Firewall",
+      "description": "WAF detection information"
+    },
+    "apis": {
+      "type": "object",
+      "title": "API Endpoints",
+      "description": "Discovered API information"
+    },
+    "metadata": {
+      "type": "object",
+      "title": "Page Metadata",
+      "description": "Page title, description, and structured data"
+    },
+    "server": {
+      "type": "object",
+      "title": "Server Information",
+      "description": "Server software and headers"
+    },
+    "detectionMethod": {
+      "type": "string",
+      "title": "Detection Method",
+      "description": "How technologies were detected (static/browser/mixed)"
+    },
+    "scannedAt": {
+      "type": "string",
+      "title": "Scan Timestamp",
+      "description": "When the analysis was performed"
+    }
+  },
+  "views": {
+    "overview": {
+      "title": "Tech Stack Overview",
+      "transformation": {
+        "fields": [
+          "url",
+          "status",
+          "technologies",
+          "waf",
+          "detectionMethod",
+          "scannedAt"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "url": {
+            "label": "Website URL",
+            "format": "link"
+          },
+          "status": {
+            "label": "Status",
+            "format": "text"
+          },
+          "technologies": {
+            "label": "Technologies",
+            "format": "json"
+          },
+          "waf": {
+            "label": "WAF",
+            "format": "json"
+          },
+          "detectionMethod": {
+            "label": "Method",
+            "format": "text"
+          },
+          "scannedAt": {
+            "label": "Scanned At",
+            "format": "datetime"
+          }
+        }
+      }
+    },
+    "technologies": {
+      "title": "Technology Details",
+      "transformation": {
+        "fields": [
+          "url",
+          "technologies.frontend",
+          "technologies.cms",
+          "technologies.analytics",
+          "technologies.hosting",
+          "technologies.cdn",
+          "technologies.libraries"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "url": {
+            "label": "Website",
+            "format": "link"
+          },
+          "technologies.frontend": {
+            "label": "Frontend",
+            "format": "json"
+          },
+          "technologies.cms": {
+            "label": "CMS",
+            "format": "json"
+          },
+          "technologies.analytics": {
+            "label": "Analytics",
+            "format": "json"
+          },
+          "technologies.hosting": {
+            "label": "Hosting",
+            "format": "json"
+          },
+          "technologies.cdn": {
+            "label": "CDN",
+            "format": "json"
+          },
+          "technologies.libraries": {
+            "label": "Libraries",
+            "format": "json"
+          }
+        }
+      }
+    },
+    "security": {
+      "title": "Security Analysis",
+      "transformation": {
+        "fields": [
+          "url",
+          "waf",
+          "server"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "url": {
+            "label": "Website",
+            "format": "link"
+          },
+          "waf": {
+            "label": "WAF Protection",
+            "format": "json"
+          },
+          "server": {
+            "label": "Server Info",
+            "format": "json"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "title": "Website Tech Stack Scanner",
+  "description": "Identify technologies used on websites using smart multi-tier detection: HTTP headers, static HTML, API probing, and browser rendering.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "urls": {
+      "title": "Website URLs",
+      "type": "array",
+      "description": "List of website URLs to analyze for technology stack detection.",
+      "editor": "stringList",
+      "prefill": ["https://example.com"],
+      "example": ["https://example.com", "https://another-site.com"],
+      "items": {
+        "type": "string",
+        "pattern": "^https?://.+"
+      },
+      "minItems": 1
+    },
+    "maxConcurrency": {
+      "title": "Max Concurrency",
+      "type": "integer",
+      "description": "Number of URLs to analyze simultaneously (1-20).",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 5,
+      "prefill": 5,
+      "editor": "number"
+    },
+    "usePlaywrightFallback": {
+      "title": "Use Browser Fallback",
+      "type": "boolean",
+      "description": "Use Playwright browser rendering for sites with client-side frameworks (React, Vue, etc.).",
+      "editor": "checkbox",
+      "default": true,
+      "prefill": true
+    },
+    "probeApiEndpoints": {
+      "title": "Probe API Endpoints",
+      "type": "boolean",
+      "description": "Check common API endpoints (/api, /graphql, /wp-json, etc.) to discover backend technologies.",
+      "editor": "checkbox",
+      "default": true,
+      "prefill": true
+    },
+    "timeout": {
+      "title": "Request Timeout (seconds)",
+      "type": "integer",
+      "description": "Maximum time to wait for each request before timing out.",
+      "minimum": 10,
+      "maximum": 120,
+      "default": 30,
+      "prefill": 30,
+      "editor": "number"
+    },
+    "proxyConfiguration": {
+      "title": "Proxy Configuration",
+      "type": "object",
+      "description": "Use Apify Proxy to avoid blocking and rate limits.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": true
+      },
+      "prefill": {
+        "useApifyProxy": true
+      }
+    }
+  },
+  "required": ["urls"]
+}

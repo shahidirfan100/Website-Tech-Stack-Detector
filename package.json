@@ -1,0 +1,30 @@
+{
+  "name": "website-tech-stack-scanner",
+  "version": "1.0.0",
+  "description": "Efficient website technology stack detector using smart multi-tier detection: HTTP headers, static HTML parsing, API probing, and browser rendering fallback. Identifies frameworks, CMS, WAFs, and more.",
+  "type": "module",
+  "dependencies": {
+    "apify": "^3.4.5",
+    "crawlee": "^3.15.3",
+    "playwright": "1.54.1",
+    "got-scraping": "4.1.2",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "@apify/eslint-config": "^1.0.0",
+    "eslint": "^9.29.0",
+    "eslint-config-prettier": "^10.1.5",
+    "prettier": "^3.5.3"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test:local": "node test-local.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "postinstall": "npx crawlee install-playwright-browsers"
+  },
+  "author": "Shahid",
+  "license": "ISC"
+}

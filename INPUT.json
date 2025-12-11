@@ -1,0 +1,12 @@
+{
+  "urls": [
+    "https://example.com"
+  ],
+  "maxConcurrency": 5,
+  "usePlaywrightFallback": true,
+  "probeApiEndpoints": true,
+  "timeout": 30,
+  "proxyConfiguration": {
+    "useApifyProxy": true
+  }
+}
