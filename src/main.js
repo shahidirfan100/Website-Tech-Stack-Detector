@@ -67,9 +67,9 @@ const TECH_PATTERNS = {
         cdn: ['unpkg.com/vue', 'cdn.jsdelivr.net/npm/vue'],
     },
     angular: {
-        script: /angular[@\-.].*\.js|angular\.js/i,
-        window: ['ng', 'angular', 'getAllAngularRootElements', 'ng.probe'],
-        html: [/<[^>]+ng-[a-z\-]+/, /ng-app|ng-controller|ng-module/i],
+        script: /@angular\/core|angular\.min\.js|angular\.js/i,
+        window: ['ng', 'getAllAngularRootElements'],
+        html: [/ng-version=["']\d+\.\d+/i, /_nghost-|_ngcontent-|<app-root/i],
         meta: [{ name: 'generator', content: /angular/i }],
     },
     svelte: {
@@ -108,9 +108,9 @@ const TECH_PATTERNS = {
     // Backend & CMS
     wordpress: {
         meta: [{ name: 'generator', content: /wordpress/i }],
-        html: [/wp-content|wp-includes|wordpress/i, /\/wp-json\//],
-        endpoints: ['/wp-json/wp/v2'],
-        script: /wp-emoji|wp-admin|/i,
+        html: [/wp-content\/themes\//i, /wp-content\/plugins\//i, /wp-includes\//i],
+        script: /wp-emoji-release\.min\.js|wp-admin/i,
+        link: /wp-content\/themes\/|wp-includes\/css\//i,
     },
     drupal: {
         meta: [{ name: 'generator', content: /drupal/i }],
@@ -128,21 +128,24 @@ const TECH_PATTERNS = {
         script: /Shopify\.shop|Shopify\.theme/i,
     },
     magento: {
-        html: [/Mage\.Cookies|magento\.com|\/media\/|\/skin\/|Magento\./i],
-        script: /mage\/|magento|/i,
+        html: [/Mage\.Cookies/i, /var BLANK_URL.*checkout\/cart/i],
+        script: /mage\/cookies\.js|magento/i,
         meta: [{ name: 'generator', content: /magento/i }],
+        window: ['Mage'],
     },
     wix: {
-        html: [/wix\.com|wixstatic|wix_|/i],
-        script: /wix|wixCode|/i,
+        html: [/static\.parastorage\.com|wixstatic\.com/i],
+        script: /static\.wixstatic\.com|wix-code-viewer/i,
+        meta: [{ name: 'generator', content: /wix\.com/i }],
     },
     squarespace: {
         meta: [{ name: 'generator', content: /squarespace/i }],
         html: /squarespace|sqs\-/i,
     },
     weebly: {
-        script: /weebly|/i,
-        html: /weebly\.com|weebly\-/i,
+        script: /cdn\d+\.editmysite\.com|weebly\.com\/weebly/i,
+        html: /class=["']weebly-/i,
+        meta: [{ name: 'generator', content: /weebly/i }],
     },
     typo3: {
         meta: [{ name: 'generator', content: /typo3/i }],
@@ -151,22 +154,22 @@ const TECH_PATTERNS = {
     
     // UI Frameworks & CSS
     bootstrap: {
-        script: /bootstrap[@\-.].*\.js/i,
-        link: /bootstrap[@\-.].*\.css/i,
-        html: [/class=["'][^"']*\bbtn\b[^"']*["']/, /class=["'][^"']*\bcontainer\b[^"']*["']/],
+        script: /bootstrap[@\-.]\.min\.js|bootstrap[@\-.].*\.bundle/i,
+        link: /bootstrap[@\-.].*\.min\.css|bootstrap[@\-.].*\.css/i,
+        html: [/class=["'][^"']*(btn-primary|btn-secondary|btn-success|btn-danger)[^"']*["']/i, /class=["'][^"']*(container-fluid|row|col-)/i],
     },
     tailwind: {
-        link: /tailwindcss|tailwind\.css/i,
-        script: /tailwind/i,
-        html: [/class=["'][^"']*\b(flex|grid|p-\d|m-\d|w-\d|h-\d)/],
+        link: /tailwindcss|tailwind.*\.css/i,
+        script: /cdn\.tailwindcss\.com/i,
+        html: [/class=["'][^"']*(bg-gradient-|from-|to-|via-)[^"']*["']/i, /class=["'][^"']*(hover:|focus:|active:|group-)/i],
     },
     materialui: {
         script: /@mui\/material|material\-ui/i,
         html: /MuiButton|MuiPaper|MuiTypography|MuiContainer/i,
     },
     bulma: {
-        link: /bulma\.css|bulma\/css/i,
-        html: /class=["'][^"']*\b(button|box|container|column)\b[^"']*["']/,
+        link: /bulma(@[\d.]+)?\/css\/bulma|bulma\.min\.css/i,
+        html: [/class=["'][^"']*(is-primary|is-link|is-info|is-success)[^"']*["']/i, /class=["'][^"']*(hero|card|panel|notification|message)\b/i],
     },
     foundation: {
         script: /foundation[@\-.].*\.js/i,
@@ -289,21 +292,28 @@ function deduplicateArray(arr) {
 }
 
 /**
- * Extract version from text with advanced regex
+ * Extract version from text with context-aware regex
  */
-function extractVersion(text) {
+function extractVersion(text, techName) {
     if (!text) return null;
-    // Try to extract semantic versioning: X.Y.Z
-    const versionPatterns = [
-        /v?(\d+\.\d+\.\d+(?:\-[a-zA-Z0-9\.]+)?(?:\+[a-zA-Z0-9\.]+)?)/,
-        /(\d+\.\d+\.\d+)/,
-        /v(\d+\.\d+)/,
-        /(\d+\.\d+)/,
+    
+    // Look for version near technology name or in common patterns
+    const contextPatterns = [
+        new RegExp(`${techName}[@\/\-]v?(\\d+\.\\d+\.\\d+)`, 'i'),
+        new RegExp(`${techName}[@\/\-](\\d+\.\\d+)`, 'i'),
+        /\/([\d.]+)\//, // version in URL path
+        /@([\d.]+)\//, // NPM version format
     ];
     
-    for (const pattern of versionPatterns) {
+    for (const pattern of contextPatterns) {
         const match = text.match(pattern);
-        if (match) return match[1];
+        if (match && match[1]) {
+            const version = match[1];
+            // Validate version format (must have at least X.Y)
+            if (/^\d+\.\d+/.test(version)) {
+                return version;
+            }
+        }
     }
     return null;
 }
@@ -392,7 +402,7 @@ function analyzeStaticResponse(html, headers, url) {
                     if (p.test(fullContent)) {
                         confidence += 3;
                         sources.push('script');
-                        if (!version) version = extractVersion(fullContent);
+                        if (!version) version = extractVersion(fullContent, techName);
                     }
                 });
             });
@@ -407,7 +417,7 @@ function analyzeStaticResponse(html, headers, url) {
                     if (p.test(href)) {
                         confidence += 2;
                         sources.push('stylesheet');
-                        if (!version) version = extractVersion(href);
+                        if (!version) version = extractVersion(href, techName);
                     }
                 });
             });
@@ -467,31 +477,48 @@ function analyzeStaticResponse(html, headers, url) {
             }
         }
         
-        if (confidence > 0) {
-            const techString = version ? `${techName} ${version}` : techName;
+        // Apply confidence threshold (minimum 2 points required)
+        if (confidence >= 2) {
+            const techString = version ? `${techName}` : techName;
+            
+            // Store with confidence for later filtering
+            if (!detectionSources[techName]) {
+                detectionSources[techName] = { confidence, version, category: null };
+            } else {
+                detectionSources[techName].confidence = Math.max(detectionSources[techName].confidence, confidence);
+                if (!detectionSources[techName].version && version) {
+                    detectionSources[techName].version = version;
+                }
+            }
             
             // Categorize technology
             if (['react', 'vue', 'angular', 'svelte', 'nextjs', 'nuxtjs', 'gatsby', 'remix', 'astro'].includes(techName)) {
+                detectionSources[techName].category = 'frontend';
                 if (!technologies.frontend.includes(techString)) {
                     technologies.frontend.push(techString);
                 }
             } else if (['wordpress', 'drupal', 'joomla', 'shopify', 'magento', 'wix', 'squarespace', 'weebly', 'typo3'].includes(techName)) {
+                detectionSources[techName].category = 'cms';
                 if (!technologies.cms.includes(techString)) {
-                    technologies.cms.push(techString);
+                    technologies.cms.push({ name: techString, confidence });
                 }
             } else if (['googleanalytics', 'gtm', 'hotjar', 'mixpanel', 'segment', 'amplitude', 'intercom', 'sentry'].includes(techName)) {
+                detectionSources[techName].category = 'analytics';
                 if (!technologies.analytics.includes(techString)) {
                     technologies.analytics.push(techString);
                 }
             } else if (['vercel', 'netlify', 'heroku', 'digitalocean', 'aws'].includes(techName)) {
+                detectionSources[techName].category = 'hosting';
                 if (!technologies.hosting.includes(techString)) {
                     technologies.hosting.push(techString);
                 }
             } else if (['cloudflare', 'cloudfront', 'fastly', 'akamai_cdn'].includes(techName)) {
+                detectionSources[techName].category = 'cdn';
                 if (!technologies.cdn.includes(techString)) {
                     technologies.cdn.push(techString);
                 }
             } else {
+                detectionSources[techName].category = 'libraries';
                 if (!technologies.libraries.includes(techString)) {
                     technologies.libraries.push(techString);
                 }
@@ -499,8 +526,33 @@ function analyzeStaticResponse(html, headers, url) {
         }
     }
     
-    // Deduplicate all arrays
+    // Apply CMS mutual exclusivity (only keep highest confidence CMS)
+    if (Array.isArray(technologies.cms) && technologies.cms.length > 1) {
+        const cmsList = technologies.cms.filter(item => typeof item === 'object');
+        if (cmsList.length > 0) {
+            // Sort by confidence and keep only the top one
+            cmsList.sort((a, b) => b.confidence - a.confidence);
+            const topCMS = cmsList[0];
+            technologies.cms = [topCMS.name];
+            
+            // Add version if available
+            const cmsKey = topCMS.name;
+            if (detectionSources[cmsKey] && detectionSources[cmsKey].version) {
+                technologies.cms = [`${cmsKey} ${detectionSources[cmsKey].version}`];
+            }
+        } else {
+            technologies.cms = technologies.cms.filter(item => typeof item === 'string');
+        }
+    }
+    
+    // Clean up and deduplicate all arrays
     Object.keys(technologies).forEach(key => {
+        // Convert any remaining objects to strings
+        if (Array.isArray(technologies[key])) {
+            technologies[key] = technologies[key].map(item => 
+                typeof item === 'object' ? item.name : item
+            );
+        }
         technologies[key] = deduplicateArray(technologies[key]);
     });
     
