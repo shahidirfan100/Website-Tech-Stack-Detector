@@ -3,22 +3,14 @@ import { Actor, log } from 'apify';
 import { CheerioCrawler, PlaywrightCrawler, Dataset, gotScraping } from 'crawlee';
 import { load as cheerioLoad } from 'cheerio';
 
-// Extended API endpoints with better coverage
+// Essential API endpoints for fast detection
 const API_ENDPOINTS = [
-    '/api', '/api/v1', '/api/v2', '/api/v3',
-    '/graphql', '/graphql/',
-    '/_next/static', '/__nextjs_original-stack-frame',
-    '/wp-json', '/wp-json/wp/v2', '/wp-admin',
-    '/admin', '/admin/', '/administrator',
-    '/_nuxt', '/_nuxt/static',
-    '/.well-known', '/robots.txt', '/sitemap.xml',
-    '/rest', '/rest/api', '/rest/v1',
-    '/ajax', '/api/ajax',
-    '/dnn',  // DNN CMS
-    '/joomla', '/index.php?format=json',
-    '/umbraco', '/umbraco/api',
-    '/sitecore', '/api/sitecore',
-    '/asp.net', '/.net',
+    '/api',
+    '/graphql',
+    '/_next/static',
+    '/wp-json/wp/v2',
+    '/_nuxt',
+    '/robots.txt',
 ];
 
 // Enhanced WAF detection patterns
@@ -572,7 +564,7 @@ async function extractBrowserTechnologies(page) {
 }
 
 /**
- * Probe API endpoints with advanced detection
+ * Probe API endpoints with parallel requests (fast)
  */
 async function probeApiEndpoints(baseUrl, proxyUrl) {
     const discovered = {
@@ -581,34 +573,43 @@ async function probeApiEndpoints(baseUrl, proxyUrl) {
         endpoints: [],
     };
     
-    for (const endpoint of API_ENDPOINTS) {
+    // Probe all endpoints in parallel for speed
+    const probePromises = API_ENDPOINTS.map(async (endpoint) => {
         try {
             const url = new URL(endpoint, baseUrl).href;
             const response = await gotScraping({
                 url,
                 method: 'GET',
                 proxyUrl,
-                timeout: { request: 5000 },
+                timeout: { request: 2000 }, // Fast 2s timeout
                 throwHttpErrors: false,
                 retry: { limit: 0 },
             });
             
             if (response.statusCode < 400) {
-                discovered.endpoints.push(endpoint);
-                
-                if (endpoint.includes('graphql')) {
-                    discovered.graphql = true;
-                }
-                
-                const contentType = response.headers['content-type'] || '';
-                if (contentType.includes('application/json')) {
-                    discovered.rest = true;
-                }
+                return { endpoint, contentType: response.headers['content-type'] || '' };
             }
         } catch (e) {
             // Endpoint not accessible
         }
-    }
+        return null;
+    });
+    
+    const results = await Promise.all(probePromises);
+    
+    results.forEach(result => {
+        if (result) {
+            discovered.endpoints.push(result.endpoint);
+            
+            if (result.endpoint.includes('graphql')) {
+                discovered.graphql = true;
+            }
+            
+            if (result.contentType.includes('application/json')) {
+                discovered.rest = true;
+            }
+        }
+    });
     
     // Deduplicate endpoints
     discovered.endpoints = deduplicateArray(discovered.endpoints);
@@ -665,6 +666,8 @@ try {
     const cheerioCrawler = new CheerioCrawler({
         maxConcurrency,
         requestHandlerTimeoutSecs: timeout,
+        navigationTimeoutSecs: 20, // Fast navigation timeout
+        maxRequestRetries: 1, // Reduce retries for speed
         proxyConfiguration: proxyConfig,
         
         async requestHandler({ request, response, body, $ }) {
@@ -685,11 +688,21 @@ try {
                     poweredBy: headers['x-powered-by'] || null,
                 };
                 
-                // API probing
+                // API probing with timeout protection
                 let apis = { graphql: false, rest: false, endpoints: [] };
                 if (shouldProbeApi) {
-                    const proxyUrl = proxyConfig ? await proxyConfig.newUrl() : undefined;
-                    apis = await probeApiEndpoints(url, proxyUrl);
+                    try {
+                        const proxyUrl = proxyConfig ? await proxyConfig.newUrl() : undefined;
+                        // Timeout API probing after 5 seconds total
+                        apis = await Promise.race([
+                            probeApiEndpoints(url, proxyUrl),
+                            new Promise((resolve) => 
+                                setTimeout(() => resolve({ graphql: false, rest: false, endpoints: [] }), 5000)
+                            ),
+                        ]);
+                    } catch (e) {
+                        log.warning(`API probing failed for ${url}: ${e.message}`);
+                    }
                 }
                 
                 const result = {
@@ -744,14 +757,17 @@ try {
             const playwrightCrawler = new PlaywrightCrawler({
                 maxConcurrency: Math.max(1, Math.floor(maxConcurrency / 2)),
                 requestHandlerTimeoutSecs: timeout,
+                navigationTimeoutSecs: 15, // Faster navigation
+                maxRequestRetries: 1, // Reduce retries
                 proxyConfiguration: proxyConfig,
-                launchContext: { launchOptions: { headless: true } },
+                launchContext: { launchOptions: { headless: true, timeout: 15000 } },
                 
                 async requestHandler({ request, page, response }) {
                     const url = request.url;
                     
                     try {
-                        await page.waitForLoadState('networkidle', { timeout: timeout * 1000 });
+                        // Shorter wait time for SPA rendering
+                        await page.waitForLoadState('domcontentloaded', { timeout: 10000 });
                         
                         const html = await page.content();
                         const headers = response ? response.headers() : {};
