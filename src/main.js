@@ -277,6 +277,61 @@ const TECH_PATTERNS = {
     },
 };
 
+// Technology categories and thresholds to reduce false positives
+const TECH_CATEGORIES = {
+    frontend: ['react', 'vue', 'angular', 'svelte', 'nextjs', 'nuxtjs', 'gatsby', 'remix', 'astro'],
+    cms: ['wordpress', 'drupal', 'joomla', 'shopify', 'magento', 'wix', 'squarespace', 'weebly', 'typo3'],
+    analytics: ['googleanalytics', 'gtm', 'hotjar', 'mixpanel', 'segment', 'amplitude', 'intercom', 'sentry'],
+    hosting: ['vercel', 'netlify', 'heroku', 'digitalocean', 'aws'],
+    cdn: ['cloudflare', 'cloudfront', 'fastly', 'akamai_cdn'],
+};
+
+const MIN_CONFIDENCE_BY_CATEGORY = {
+    cms: 3,
+    frontend: 2,
+    analytics: 2,
+    hosting: 2,
+    cdn: 2,
+    libraries: 2,
+};
+
+// Inference hints to produce a human-friendly final verdict
+const STACK_INFERENCES = {
+    wordpress: { languages: ['PHP'], databases: ['MySQL/MariaDB'] },
+    drupal: { languages: ['PHP'], databases: ['MySQL/MariaDB', 'PostgreSQL'] },
+    joomla: { languages: ['PHP'], databases: ['MySQL/MariaDB'] },
+    magento: { languages: ['PHP'], databases: ['MySQL/MariaDB'] },
+    shopify: { languages: ['Ruby on Rails'], databases: ['Shopify managed store'] },
+    wix: { languages: ['Wix platform'], databases: ['Wix Data'] },
+    squarespace: { languages: ['Squarespace platform'], databases: ['Squarespace Data'] },
+    weebly: { languages: ['Weebly platform'], databases: ['Weebly Data'] },
+    typo3: { languages: ['PHP'], databases: ['MySQL/MariaDB'] },
+    nextjs: { languages: ['Node.js'] },
+    nuxtjs: { languages: ['Node.js'] },
+    react: { languages: ['JavaScript/TypeScript'] },
+    vue: { languages: ['JavaScript/TypeScript'] },
+    angular: { languages: ['JavaScript/TypeScript'] },
+    svelte: { languages: ['JavaScript/TypeScript'] },
+    astro: { languages: ['JavaScript/TypeScript'] },
+};
+
+// Human readable labels
+const DISPLAY_NAMES = {
+    nextjs: 'Next.js',
+    nuxtjs: 'Nuxt.js',
+    gatsby: 'Gatsby',
+    remix: 'Remix',
+    astro: 'Astro',
+    jquery: 'jQuery',
+    lodash: 'Lodash',
+    momentjs: 'Moment.js',
+    googleanalytics: 'Google Analytics',
+    gtm: 'Google Tag Manager',
+    materialui: 'Material UI',
+    aws: 'AWS',
+    akamai_cdn: 'Akamai CDN',
+};
+
 /**
  * Deduplicate array of strings with case-insensitive comparison
  */
@@ -289,6 +344,130 @@ function deduplicateArray(arr) {
         seen.add(lower);
         return true;
     });
+}
+
+function humanizeTechName(name) {
+    if (!name) return '';
+    const lower = name.toLowerCase();
+    if (DISPLAY_NAMES[lower]) return DISPLAY_NAMES[lower];
+    return lower
+        .split(/[_-]/)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+}
+
+function formatTechName(name, version) {
+    return version ? `${name} ${version}` : name;
+}
+
+function getCategoryForTech(techName) {
+    const lower = techName.toLowerCase();
+    for (const [category, names] of Object.entries(TECH_CATEGORIES)) {
+        if (names.includes(lower)) return category;
+    }
+    return 'libraries';
+}
+
+function confidenceFromScore(score) {
+    if (score >= 6) return 'high';
+    if (score >= 3) return 'medium';
+    return 'low';
+}
+
+function mapBrowserTechToKey(displayName) {
+    const normalized = (displayName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const mapping = {
+        nextjs: 'nextjs',
+        nuxtjs: 'nuxtjs',
+        react: 'react',
+        vue: 'vue',
+        angular: 'angular',
+        svelte: 'svelte',
+        astro: 'astro',
+        jquery: 'jquery',
+        lodash: 'lodash',
+        momentjs: 'momentjs',
+        d3: 'd3',
+        threejs: 'threejs',
+        mixpanel: 'mixpanel',
+        sentry: 'sentry',
+        intercom: 'intercom',
+        hotjar: 'hotjar',
+        amplitude: 'amplitude',
+    };
+    return mapping[normalized] || null;
+}
+
+function buildVerdict(technologies, techMatches, waf, serverInfo) {
+    const pickTop = (category) => {
+        const candidates = Object.entries(techMatches || {}).filter(([, meta]) => meta.category === category);
+        if (candidates.length === 0) return null;
+        candidates.sort((a, b) => b[1].confidence - a[1].confidence);
+        const [key, meta] = candidates[0];
+        return {
+            key,
+            displayName: meta.displayName || humanizeTechName(key),
+            version: meta.version || null,
+            confidence: meta.confidence,
+        };
+    };
+
+    const primary = {
+        cms: pickTop('cms'),
+        frontend: pickTop('frontend'),
+        hosting: pickTop('hosting'),
+        cdn: pickTop('cdn'),
+    };
+
+    const inferred = {
+        languages: [],
+        databases: [],
+    };
+
+    const addInference = (key) => {
+        if (!key) return;
+        const lower = key.toLowerCase();
+        const inference = STACK_INFERENCES[lower];
+        if (inference?.languages) inferred.languages.push(...inference.languages);
+        if (inference?.databases) inferred.databases.push(...inference.databases);
+    };
+
+    addInference(primary.cms?.key);
+    addInference(primary.frontend?.key);
+
+    const serverBlob = `${serverInfo?.software || ''} ${serverInfo?.poweredBy || ''}`.toLowerCase();
+    if (serverBlob.includes('php')) inferred.languages.push('PHP');
+    if (serverBlob.includes('asp.net')) inferred.languages.push('.NET');
+    if (serverBlob.includes('node')) inferred.languages.push('Node.js');
+    if (serverBlob.includes('python')) inferred.languages.push('Python');
+    if (serverBlob.includes('ruby')) inferred.languages.push('Ruby');
+    if (serverBlob.includes('laravel')) inferred.languages.push('PHP');
+
+    inferred.languages = deduplicateArray(inferred.languages);
+    inferred.databases = deduplicateArray(inferred.databases);
+
+    const summaryParts = [];
+    if (primary.cms) summaryParts.push(`CMS: ${formatTechName(primary.cms.displayName, primary.cms.version)}`);
+    if (primary.frontend) summaryParts.push(`Frontend: ${formatTechName(primary.frontend.displayName, primary.frontend.version)}`);
+    if (primary.hosting) summaryParts.push(`Hosting: ${formatTechName(primary.hosting.displayName, primary.hosting.version)}`);
+    if (primary.cdn) summaryParts.push(`CDN: ${formatTechName(primary.cdn.displayName, primary.cdn.version)}`);
+    if (waf?.detected) summaryParts.push(`WAF: ${waf.provider} (${waf.confidence})`);
+    if (inferred.languages.length) summaryParts.push(`Language: ${inferred.languages.join(', ')}`);
+    if (inferred.databases.length) summaryParts.push(`Database: ${inferred.databases.join(', ')}`);
+
+    const topScore = Math.max(
+        primary.cms?.confidence || 0,
+        primary.frontend?.confidence || 0,
+        primary.hosting?.confidence || 0,
+        primary.cdn?.confidence || 0,
+    );
+
+    return {
+        primary,
+        inferred,
+        confidence: confidenceFromScore(topScore),
+        summary: summaryParts.join(' | '),
+    };
 }
 
 /**
@@ -382,13 +561,14 @@ function analyzeStaticResponse(html, headers, url) {
         libraries: [],
     };
     
-    const detectionSources = {};
+    const techMatches = {};
+    const cmsCandidates = [];
     
     // Detect technologies with scoring
     for (const [techName, patterns] of Object.entries(TECH_PATTERNS)) {
         let confidence = 0;
         let version = null;
-        const sources = [];
+        const sources = new Set();
         
         // Check scripts (weight: 3)
         if (patterns.script) {
@@ -401,7 +581,7 @@ function analyzeStaticResponse(html, headers, url) {
                 scriptPatterns.forEach(p => {
                     if (p.test(fullContent)) {
                         confidence += 3;
-                        sources.push('script');
+                        sources.add('script');
                         if (!version) version = extractVersion(fullContent, techName);
                     }
                 });
@@ -416,7 +596,7 @@ function analyzeStaticResponse(html, headers, url) {
                 linkPatterns.forEach(p => {
                     if (p.test(href)) {
                         confidence += 2;
-                        sources.push('stylesheet');
+                        sources.add('stylesheet');
                         if (!version) version = extractVersion(href, techName);
                     }
                 });
@@ -429,7 +609,8 @@ function analyzeStaticResponse(html, headers, url) {
                 const content = $(`meta[name="${meta.name}"]`).attr('content') || '';
                 if (meta.content && meta.content.test(content)) {
                     confidence += 2;
-                    sources.push('meta');
+                    sources.add('meta');
+                    if (!version) version = extractVersion(content, techName);
                 }
             });
         }
@@ -440,7 +621,7 @@ function analyzeStaticResponse(html, headers, url) {
             htmlPatterns.forEach(p => {
                 if (p.test(html)) {
                     confidence += 2;
-                    sources.push('html');
+                    sources.add('html');
                 }
             });
         }
@@ -451,7 +632,7 @@ function analyzeStaticResponse(html, headers, url) {
                 const headerValue = headers[headerName.toLowerCase()] || '';
                 if (headerPattern.test(headerValue)) {
                     confidence += 2;
-                    sources.push('header');
+                    sources.add('header');
                 }
             });
         }
@@ -463,86 +644,46 @@ function analyzeStaticResponse(html, headers, url) {
                     const src = $(el).attr('src') || '';
                     if (src.includes(cdn)) {
                         confidence += 1;
-                        sources.push('cdn');
+                        sources.add('cdn');
                     }
                 });
             });
         }
-        
-        // Check window globals (weight: 1) - flagged for browser detection
-        if (patterns.window) {
-            // Store for later browser-based detection
-            if (!detectionSources[techName]) {
-                detectionSources[techName] = { sources, confidence, version };
-            }
-        }
-        
-        // Apply confidence threshold (minimum 2 points required)
-        if (confidence >= 2) {
-            const techString = version ? `${techName}` : techName;
-            
-            // Store with confidence for later filtering
-            if (!detectionSources[techName]) {
-                detectionSources[techName] = { confidence, version, category: null };
+
+        const category = getCategoryForTech(techName);
+        const threshold = MIN_CONFIDENCE_BY_CATEGORY[category] || 2;
+        const displayName = humanizeTechName(techName);
+
+        if (confidence >= threshold) {
+            const techString = formatTechName(displayName, version);
+
+            if (category === 'cms') {
+                cmsCandidates.push({ key: techName, displayName, confidence, version });
             } else {
-                detectionSources[techName].confidence = Math.max(detectionSources[techName].confidence, confidence);
-                if (!detectionSources[techName].version && version) {
-                    detectionSources[techName].version = version;
-                }
+                technologies[category].push(techString);
             }
-            
-            // Categorize technology
-            if (['react', 'vue', 'angular', 'svelte', 'nextjs', 'nuxtjs', 'gatsby', 'remix', 'astro'].includes(techName)) {
-                detectionSources[techName].category = 'frontend';
-                if (!technologies.frontend.includes(techString)) {
-                    technologies.frontend.push(techString);
-                }
-            } else if (['wordpress', 'drupal', 'joomla', 'shopify', 'magento', 'wix', 'squarespace', 'weebly', 'typo3'].includes(techName)) {
-                detectionSources[techName].category = 'cms';
-                if (!technologies.cms.includes(techString)) {
-                    technologies.cms.push({ name: techString, confidence });
-                }
-            } else if (['googleanalytics', 'gtm', 'hotjar', 'mixpanel', 'segment', 'amplitude', 'intercom', 'sentry'].includes(techName)) {
-                detectionSources[techName].category = 'analytics';
-                if (!technologies.analytics.includes(techString)) {
-                    technologies.analytics.push(techString);
-                }
-            } else if (['vercel', 'netlify', 'heroku', 'digitalocean', 'aws'].includes(techName)) {
-                detectionSources[techName].category = 'hosting';
-                if (!technologies.hosting.includes(techString)) {
-                    technologies.hosting.push(techString);
-                }
-            } else if (['cloudflare', 'cloudfront', 'fastly', 'akamai_cdn'].includes(techName)) {
-                detectionSources[techName].category = 'cdn';
-                if (!technologies.cdn.includes(techString)) {
-                    technologies.cdn.push(techString);
-                }
-            } else {
-                detectionSources[techName].category = 'libraries';
-                if (!technologies.libraries.includes(techString)) {
-                    technologies.libraries.push(techString);
-                }
-            }
+
+            techMatches[techName] = {
+                confidence,
+                version,
+                category,
+                displayName,
+                sources: Array.from(sources),
+            };
         }
     }
     
-    // Apply CMS mutual exclusivity (only keep highest confidence CMS)
-    if (Array.isArray(technologies.cms) && technologies.cms.length > 1) {
-        const cmsList = technologies.cms.filter(item => typeof item === 'object');
-        if (cmsList.length > 0) {
-            // Sort by confidence and keep only the top one
-            cmsList.sort((a, b) => b.confidence - a.confidence);
-            const topCMS = cmsList[0];
-            technologies.cms = [topCMS.name];
-            
-            // Add version if available
-            const cmsKey = topCMS.name;
-            if (detectionSources[cmsKey] && detectionSources[cmsKey].version) {
-                technologies.cms = [`${cmsKey} ${detectionSources[cmsKey].version}`];
-            }
-        } else {
-            technologies.cms = technologies.cms.filter(item => typeof item === 'string');
-        }
+    if (cmsCandidates.length > 0) {
+        cmsCandidates.sort((a, b) => b.confidence - a.confidence);
+        const topCMS = cmsCandidates[0];
+        technologies.cms = [formatTechName(topCMS.displayName, topCMS.version)];
+        techMatches[topCMS.key] = techMatches[topCMS.key] || {
+            confidence: topCMS.confidence,
+            version: topCMS.version,
+            category: 'cms',
+            displayName: topCMS.displayName,
+            sources: ['html'],
+        };
     }
     
     // Clean up and deduplicate all arrays
@@ -550,7 +691,7 @@ function analyzeStaticResponse(html, headers, url) {
         // Convert any remaining objects to strings
         if (Array.isArray(technologies[key])) {
             technologies[key] = technologies[key].map(item => 
-                typeof item === 'object' ? item.name : item
+                typeof item === 'object' ? item.displayName || item.name : item
             );
         }
         technologies[key] = deduplicateArray(technologies[key]);
@@ -567,7 +708,7 @@ function analyzeStaticResponse(html, headers, url) {
         }
     });
     
-    return { technologies, structuredData };
+    return { technologies, structuredData, techMatches };
 }
 
 /**
@@ -683,6 +824,15 @@ function deduplicateResult(result) {
         result.apis.endpoints = deduplicateArray(result.apis.endpoints);
     }
     
+    if (result.verdict?.inferred) {
+        if (result.verdict.inferred.languages) {
+            result.verdict.inferred.languages = deduplicateArray(result.verdict.inferred.languages);
+        }
+        if (result.verdict.inferred.databases) {
+            result.verdict.inferred.databases = deduplicateArray(result.verdict.inferred.databases);
+        }
+    }
+    
     return result;
 }
 
@@ -731,9 +881,10 @@ try {
                 
                 // Advanced WAF detection
                 const waf = detectWAF(headers, Array.isArray(cookies) ? cookies : [cookies], body);
+                const wafInfo = waf ? { detected: true, provider: waf.name, confidence: waf.confidence, score: waf.score } : { detected: false };
                 
                 // Advanced technology analysis
-                const { technologies, structuredData } = analyzeStaticResponse(body, headers, url);
+                const { technologies, structuredData, techMatches } = analyzeStaticResponse(body, headers, url);
                 
                 const serverInfo = {
                     software: headers['server'] || 'Unknown',
@@ -761,14 +912,17 @@ try {
                     url,
                     status: 'success',
                     technologies,
-                    waf: waf ? { detected: true, provider: waf.name, confidence: waf.confidence, score: waf.score } : { detected: false },
+                    waf: wafInfo,
                     apis,
                     metadata: {
                         title: $('title').text() || null,
                         description: $('meta[name="description"]').attr('content') || null,
+                        structuredData,
                     },
                     server: serverInfo,
                     detectionMethod: 'static',
+                    verdict: buildVerdict(technologies, techMatches, wafInfo, serverInfo),
+                    detectionDetails: { matches: techMatches },
                     scannedAt: new Date().toISOString(),
                 };
                 
@@ -781,6 +935,9 @@ try {
                 
                 const techCount = Object.values(technologies).flat().length;
                 log.info(`✅ ${url} - Found ${techCount} technologies`);
+                if (cleanResult.verdict?.summary) {
+                    log.info(`✅ Verdict: ${cleanResult.verdict.summary}`);
+                }
                 
             } catch (error) {
                 log.error(`❌ Error analyzing ${url}: ${error.message}`);
@@ -824,18 +981,39 @@ try {
                         const html = await page.content();
                         const headers = response ? response.headers() : {};
                         const browserTechs = await extractBrowserTechnologies(page);
-                        const { technologies, structuredData } = analyzeStaticResponse(html, headers, url);
+                        const { technologies, structuredData, techMatches } = analyzeStaticResponse(html, headers, url);
                         
                         // Merge with deduplication
                         browserTechs.forEach(tech => {
-                            if (!technologies.frontend.includes(tech)) {
-                                technologies.frontend.push(tech);
+                            const key = mapBrowserTechToKey(tech);
+                            if (!key) return;
+                            
+                            const displayName = humanizeTechName(key);
+                            const formatted = formatTechName(displayName, null);
+                            const category = getCategoryForTech(key);
+                            
+                            if (category === 'frontend' && !technologies.frontend.some(item => item.toLowerCase() === formatted.toLowerCase())) {
+                                technologies.frontend.push(formatted);
                             }
+                            
+                            const existing = techMatches[key] || { confidence: 0, version: null, category, displayName, sources: [] };
+                            existing.confidence = Math.max(existing.confidence, 3);
+                            existing.sources = deduplicateArray([...(existing.sources || []), 'window']);
+                            techMatches[key] = existing;
                         });
                         
                         const idx = results.findIndex(r => r.url === url);
                         if (idx !== -1) {
+                            const serverInfo = results[idx].server || {
+                                software: headers['server'] || 'Unknown',
+                                poweredBy: headers['x-powered-by'] || null,
+                            };
+                            const wafInfo = results[idx].waf || { detected: false };
+                            
                             results[idx].technologies = technologies;
+                            results[idx].metadata = { ...(results[idx].metadata || {}), structuredData };
+                            results[idx].verdict = buildVerdict(technologies, techMatches, wafInfo, serverInfo);
+                            results[idx].detectionDetails = { matches: techMatches };
                             results[idx].detectionMethod = 'browser';
                             const cleanResult = deduplicateResult(results[idx]);
                             await Dataset.pushData(cleanResult);
